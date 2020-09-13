@@ -84,13 +84,13 @@ import konfigurazioa.types as kt
 #+end_src
 
 #+begin_src python :noweb yes :tangle (k-types-file) :exports code :results none
-import functools
-from typing import ( Any, List, TypeVar, Generic, Type, Union, Optional
+from typing import ( Any, List, TypeVar, Generic, Union, Optional
                    , Callable, Tuple
                    )
 import re
 
 _T = TypeVar("_T")
+
 
 class T(Generic[_T]):
     name = "T"
@@ -105,6 +105,7 @@ class T(Generic[_T]):
 
     def parse(self: "T", v: Any) -> _T:
         ...
+
 
 class BasicTypeWrapper(T[_T]):
     caster = None  # type: Optional[Callable[[Any], _T]]
@@ -136,39 +137,50 @@ class Int(BasicTypeWrapper[int]):
     caster = int
     name = "Int"
 
+
 class Float(BasicTypeWrapper[float]):
     caster = float
     name = "Float"
 
+
 class Bool(T[bool]):
     name = "Bool"
+
     def parse(self: "Bool", v: Any) -> bool:
+
         if isinstance(v, bool):
             return v
         else:
+
             if v in ["true", "True"]:
                 return True
+
             if v in ["false", "False"]:
                 return False
         raise ValueError("Invalid value for type {} ({})"
                          .format(self.name, v))
 
+
 class String(BasicTypeWrapper[str]):
     caster = str
     name = "String"
 
+
 # for higher kinded types
 _K = TypeVar("_K", bound="T")
 _L = TypeVar("_L", bound="T")
+
 
 class _Optional(T[Optional[_K]]):
 
     wrap_type = None  # type: Optional[_K]
 
     def parse(self: "_Optional[_K]", v: Any) -> Optional[_K]:
+
         if v is None or v == "None":
             return None
         else:
+
             if self.wrap_type is None:
                 raise Exception("Optional class needs a wrap_type")
             else:
@@ -180,17 +192,19 @@ class _List(T[List[_K]]):
     wrap_type = None  # type: Optional[_K]
 
     def parse(self: "_List[_K]", v: Any) -> List[_K]:
+
         if isinstance(v, list):
-            l = v
+            _list = v
         else:
-            l = re.findall(r"[^,\[\]()]+", str(v))
-            if not l:
+            _list = re.findall(r"[^,\[\]()]+", str(v))
+
+            if not _list:
                 raise Exception("Invalid list: {}".format(v))
 
         if self.wrap_type is None:
             raise Exception("List class needs a wrap_type")
         else:
-            return [self.wrap_type.parse(e) for e in l]
+            return [self.wrap_type.parse(e) for e in _list]
 
 
 class _Union(T[Union[_K, _L]]):
@@ -216,6 +230,7 @@ def string_to_union(name: str) -> Optional[_Union[_K, _L]]:
         return None
     fst = string_to_type(m.group(1))
     snd = string_to_type(m.group(2))
+
     class __A(_Union):
         pass
     a = __A()
@@ -229,6 +244,7 @@ def string_to_list(name: str) -> Optional[_List[_K]]:
     if not m:
         return None
     t = string_to_type(m.group(1))
+
     class __A(_List):
         pass
     a = __A()
@@ -242,6 +258,7 @@ def string_to_opt(name: str) -> Optional[_Optional[_K]]:
     if not m:
         return None
     t = string_to_type(m.group(1))
+
     class __A(_Optional):
         pass
     a = __A()
@@ -266,7 +283,6 @@ def string_to_type(name: str, types=TYPES) -> T:
         if _t:
             return _t
     raise TypeError("Type {} not recognised".format(name))
-
 #+end_src
 
 *** Tests
@@ -339,7 +355,7 @@ configuration language like [[https://github.com/toml-lang/toml][toml]], [[https
 *** Schema
 
 #+begin_src python :noweb yes :tangle (k-schema-file) :exports code :results none
-from typing import NamedTuple, Any, List, NewType, Callable
+from typing import NamedTuple, Any, List, Callable
 import konfigurazioa.types as kt
 import yaml
 
@@ -364,9 +380,9 @@ Schema = List[SchemaAtom]
 
 
 def guard_from_dict(d: dict) -> Guard:
-    l = eval(d["callable"])
-    assert callable(l), "Guard's callable must be a callable object"
-    return Guard(d["message"], l)
+    _l = eval(d["callable"])
+    assert callable(_l), "Guard's callable must be a callable object"
+    return Guard(d["message"], _l)
 
 
 def schema_from_file(filepath: str) -> Schema:
@@ -385,7 +401,6 @@ def schema_from_file(filepath: str) -> Schema:
                                 , default=default
                                 , guards=[guard_from_dict(g) for g in guards]))
     return schema
-
 #+end_src
 
 *** Tests
@@ -414,8 +429,8 @@ import konfigurazioa.schema as ks
 
 
 def test_schema_from_file():
-schema = ks.schema_from_file("tests/schema.yaml")
-assert schema
+    schema = ks.schema_from_file("tests/schema.yaml")
+    assert schema
 #+end_src
 
 ** Configuration
