@@ -34,16 +34,16 @@ The defining configuration in the main program for this case would be
 #+begin_src yaml
 port:
   default: 80
-  type: int
+  type: Int
   doc: |
     Port for the main application to listen to.
 base:
   default: index.html
-  type: str
+  type: String
   doc: Static file to serve in the root.
 proxy:
   default: None
-  type: Optional[str]
+  type: Optional[String]
   doc: Proxy to reroute your main application.
 #+end_src
 
@@ -269,6 +269,8 @@ def string_to_type(name: str, types=TYPES) -> T:
 
 #+end_src
 
+*** Tests
+
 #+begin_src python :noweb yes :tangle (k-types-test-file) :exports none :results none
 
 def test_int() -> None:
@@ -325,4 +327,101 @@ def test_union_int_bool() -> None:
         assert EitherIntOrBool.parse(p) is v
 
 
+#+end_src
+
+
+** Configuration file
+
+The configuration consists of a Schema written in yaml
+and a user configuration written in some suitable
+configuration language like [[https://github.com/toml-lang/toml][toml]], [[https://yaml.org][yaml]] etc...
+
+*** Schema
+
+#+begin_src python :noweb yes :tangle (k-schema-file) :exports code :results none
+from typing import NamedTuple, Any, List, NewType, Callable
+import konfigurazioa.types as kt
+import yaml
+
+
+Guard = NamedTuple("Guard", [ ("message", str)
+                            , ("callable", Callable[[Any], bool])
+                            ])
+
+
+SchemaAtom = NamedTuple( "SchemaAtom"
+                       , [ ("name", str)
+                         , ("type", kt.T)
+                         , ("doc", str)
+                         # The type will be checked at parsing time
+                         , ("default", Any)
+                         , ("guards", List[Guard])
+                         ]
+                       )
+
+
+Schema = List[SchemaAtom]
+
+
+def guard_from_dict(d: dict) -> Guard:
+    l = eval(d["callable"])
+    assert callable(l), "Guard's callable must be a callable object"
+    return Guard(d["message"], l)
+
+
+def schema_from_file(filepath: str) -> Schema:
+    schema = []  # type: Schema
+    with open(filepath) as f:
+        raw_schema = yaml.load(f, Loader=yaml.FullLoader)
+    for key in raw_schema:
+        string_default = raw_schema[key]["default"]
+        string_type = raw_schema[key]["type"]
+        t = kt.string_to_type(string_type)
+        default = t.parse(string_default)
+        guards = raw_schema[key].get("guards", [])
+        schema.append(SchemaAtom( name=key
+                                , type=t
+                                , doc=raw_schema[key]["doc"]
+                                , default=default
+                                , guards=[guard_from_dict(g) for g in guards]))
+    return schema
+
+#+end_src
+
+*** Tests
+
+#+begin_src yaml :noweb yes :tangle tests/schema.yaml :exports none :results none
+port:
+  default: 80
+  type: Int
+  doc: |
+    Port for the main application to listen to.
+  guards:
+    - message: "The port number must be larger than 80"
+      callable: "lambda x: x >= 80"
+base:
+  default: index.html
+  type: String
+  doc: Static file to serve in the root.
+proxy:
+  default: None
+  type: Optional[String]
+  doc: Proxy to reroute your main application.
+#+end_src
+
+#+begin_src python :noweb yes :tangle (k-schema-test-file) :exports none :results none
+import konfigurazioa.schema as ks
+
+
+def test_schema_from_file():
+schema = ks.schema_from_file("tests/schema.yaml")
+assert schema
+#+end_src
+
+** Configuration
+
+#+begin_src python :noweb yes :tangle (k-config-file) :exports code :results none
+#+end_src
+
+#+begin_src python :noweb yes :tangle (k-config-test-file) :exports none :results none
 #+end_src
