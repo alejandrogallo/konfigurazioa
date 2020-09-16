@@ -85,68 +85,37 @@ import konfigurazioa.types as kt
 
 #+begin_src python :noweb yes :tangle (k-types-file) :exports code :results none
 from typing import ( Any, List, TypeVar, Generic, Union, Optional
-                   , Callable, Tuple
+                   , Callable, Tuple, NamedTuple
                    )
 import re
 
-_T = TypeVar("_T")
+Ty = NamedTuple("Ty", [ ("name", str)
+                      , ("match", Callable[[Any], bool])
+                      , ("parse", Callable[[Any], Any])])
 
+def ty_matcher(t: Ty, v:Any) -> bool:
+    try:
+        t.parse(v)
+    except ValueError:
+        return False
+    else:
+        return True
 
-class T(Generic[_T]):
-    name = "T"
-
-    def match(self: "T", v: Any) -> bool:
-        try:
-            self.parse(v)
-        except ValueError:
-            return False
-        else:
-            return True
-
-    def parse(self: "T", v: Any) -> _T:
-        ...
-
-
-class BasicTypeWrapper(T[_T]):
-    caster = None  # type: Optional[Callable[[Any], _T]]
-
-    def match(self: "BasicTypeWrapper", v: Any) -> bool:
-        try:
-            self.parse(v)
-        except ValueError:
-            return False
-        else:
-            return True
-
-    def parse(self: "BasicTypeWrapper", v: Any) -> _T:
-        try:
-            if self.caster is None:
-                raise Exception("caster must be set")
-            else:
-                return self.caster(v)
-        except ValueError:
-            raise ValueError("Invalid value for type {} ({})"
-                             .format(self.name, v))
 #+end_src
 
 Now we can define the basic python types as wrapped types.
 
 #+begin_src python :noweb yes :tangle (k-types-file) :exports code :results none
 
-class Int(BasicTypeWrapper[int]):
-    caster = int
-    name = "Int"
+def make_basic_wrapper(t: type, name: str) -> Ty:
+    tt = Ty(name=name,
+            match=lambda x: ty_matcher(tt, x),
+            parse=lambda x: t(x))  # type: Ty
+    return tt
 
 
-class Float(BasicTypeWrapper[float]):
-    caster = float
-    name = "Float"
-
-
-class Bool(T[bool]):
-    name = "Bool"
-
-    def parse(self: "Bool", v: Any) -> bool:
+def make_bool() -> Ty:
+    def parse_bool(t: Ty, v: Any) -> bool:
 
         if isinstance(v, bool):
             return v
@@ -158,126 +127,95 @@ class Bool(T[bool]):
             if v in ["false", "False"]:
                 return False
         raise ValueError("Invalid value for type {} ({})"
-                         .format(self.name, v))
+                         .format(t.name, v))
+
+    tt = Ty(name="Bool",
+            match=lambda x: ty_matcher(tt, x),
+            parse=lambda x: parse_bool(tt, x))
+    return tt
 
 
-class String(BasicTypeWrapper[str]):
-    caster = str
-    name = "String"
+Int = make_basic_wrapper(int, "Int")
+Float = make_basic_wrapper(float, "Float")
+String = make_basic_wrapper(str, "String")
+Bool = make_bool()
 
 
-# for higher kinded types
-_K = TypeVar("_K", bound="T")
-_L = TypeVar("_L", bound="T")
+def make_optional(t: Ty) -> Ty:
+    tt = Ty(name="Optional[{}]".format(t.name),
+            match=lambda x: ty_matcher(tt, x),
+            parse=lambda x: None if (x in [None, "None"]) else t.parse(x))  # type: Ty
+    return tt
 
 
-class _Optional(T[Optional[_K]]):
-
-    wrap_type = None  # type: Optional[_K]
-
-    def parse(self: "_Optional[_K]", v: Any) -> Optional[_K]:
-
-        if v is None or v == "None":
-            return None
-        else:
-
-            if self.wrap_type is None:
-                raise Exception("Optional class needs a wrap_type")
-            else:
-                return self.wrap_type.parse(v)
-
-
-class _List(T[List[_K]]):
-
-    wrap_type = None  # type: Optional[_K]
-
-    def parse(self: "_List[_K]", v: Any) -> List[_K]:
-
+def make_list(t: Ty) -> Ty:
+    def parse_list(_t: Ty, v: Any) -> List[Any]:
         if isinstance(v, list):
             _list = v
         else:
             _list = re.findall(r"[^,\[\]()]+", str(v))
-
             if not _list:
                 raise Exception("Invalid list: {}".format(v))
+        return [_t.parse(e) for e in _list]
+    tt = Ty(name="List[{}]".format(t.name),
+            match=lambda x: ty_matcher(tt, x),
+            parse = lambda x: parse_list(t, x))
+    return tt
 
-        if self.wrap_type is None:
-            raise Exception("List class needs a wrap_type")
-        else:
-            return [self.wrap_type.parse(e) for e in _list]
 
-
-class _Union(T[Union[_K, _L]]):
-
-    wrap_types = None  # type: Optional[Tuple[_K, _L]]
-
-    def parse(self: "_Union[_K, _L]", v: Any) -> Union[_K, _L]:
-        if self.wrap_types is None:
-            raise TypeError("Union need wrap_types")
+def make_union(t: Ty, s: Ty) -> Ty:
+    def parse_union(tt: Ty, _t: Ty, _s: Ty, x: Any) -> Any:
+        wrap_types = (_t, _s)
         for i in range(2):
             try:
-                t = self.wrap_types[i]
-                return t.parse(v)
+                t = wrap_types[i]
+                return t.parse(x)
             except ValueError:
                 pass
         raise ValueError("Invalid value for type {} ({})"
-                         .format(self.name, v))
+                         .format(tt.name, x))
+    tt = Ty(name="Union[{},{}]".format(t.name, s.name),
+            match=lambda x: ty_matcher(tt, x),
+            parse = lambda x: parse_union(tt, t, s, x))
+    return tt
 
 
-def string_to_union(name: str) -> Optional[_Union[_K, _L]]:
+def string_to_union(name: str) -> Optional[Ty]:
     m = re.match(r"Union\[([^\[\]]+)\s*,\s*([^\[\]]+)\s*\]", name)
     if not m:
         return None
     fst = string_to_type(m.group(1))
     snd = string_to_type(m.group(2))
-
-    class __A(_Union):
-        pass
-    a = __A()
-    a.wrap_types = (fst, snd)
-    a.name = name
-    return a
+    return make_union(fst, snd)
 
 
-def string_to_list(name: str) -> Optional[_List[_K]]:
+def string_to_list(name: str) -> Optional[Ty]:
     m = re.match(r"List\[([^\[\]]+)\]", name)
     if not m:
         return None
     t = string_to_type(m.group(1))
-
-    class __A(_List):
-        pass
-    a = __A()
-    a.wrap_type = t
-    a.name = name
-    return a
+    return make_list(t)
 
 
-def string_to_opt(name: str) -> Optional[_Optional[_K]]:
+def string_to_optional(name: str) -> Optional[Ty]:
     m = re.match(r"Optional\[([^\[\]]+)\]", name)
     if not m:
         return None
     t = string_to_type(m.group(1))
-
-    class __A(_Optional):
-        pass
-    a = __A()
-    a.wrap_type = t
-    a.name = name
-    return a
+    return make_optional(t)
 
 
-TYPES = [ lambda x: re.match(Int.name, x) and Int()
-        , lambda x: re.match(Float.name, x) and Float()
-        , lambda x: re.match(String.name, x) and String()
-        , lambda x: re.match(Bool.name, x) and Bool()
-        , string_to_opt
+TYPES = [ lambda x: Int if re.match(Int.name, x) else None
+        , lambda x: Float if re.match(Float.name, x) else None
+        , lambda x: String if re.match(String.name, x) else None
+        , lambda x: Bool if re.match(Bool.name, x) else None
+        , string_to_optional
         , string_to_list
         , string_to_union
-        ]  # List[Callable[[str], T]]
+        ]  # List[Callable[[str], Optional[Ty]]]
 
 
-def string_to_type(name: str, types=TYPES) -> T:
+def string_to_type(name: str, types: List[Callable[[str], Optional[Ty]]]=TYPES) -> Ty:
     for t in types:
         _t = t(name)
         if _t:
@@ -291,7 +229,7 @@ def string_to_type(name: str, types=TYPES) -> T:
 
 def test_int() -> None:
     Int = kt.string_to_type("Int")
-    assert isinstance(Int, kt.T)
+    assert isinstance(Int, kt.Ty)
     assert Int.parse("5") == 5
     assert Int.parse(5) == 5
     assert Int.parse(5.4) == 5
@@ -299,19 +237,19 @@ def test_int() -> None:
 
 def test_float() -> None:
     Float = kt.string_to_type("Float")
-    assert isinstance(Float, kt.T)
+    assert isinstance(Float, kt.Ty)
     assert Float.parse("5") == 5.0
     assert Float.parse(5) == 5.0
     assert Float.parse(5.4) == 5.4
 
 
 def test_opt() -> None:
-    OptInt = kt.string_to_opt("Optional[Int]")
+    OptInt = kt.string_to_optional("Optional[Int]")
     assert OptInt
     assert OptInt.parse(None) == None
     assert OptInt.parse("None") == None
     assert OptInt.parse(4.4) == 4
-    OptFloat = kt.string_to_opt("Optional[Float]")
+    OptFloat = kt.string_to_optional("Optional[Float]")
     assert OptFloat
     assert OptFloat.parse(None) == None
     assert OptFloat.parse("None") == None
@@ -322,11 +260,11 @@ def test_opt() -> None:
 def test_list_int() -> None:
     ListInt = kt.string_to_list("List[Int]")
     assert ListInt
-    assert isinstance(ListInt, kt.T)
+    assert isinstance(ListInt, kt.Ty)
     assert ListInt.parse("1,2,3,4") == [1,2,3,4]
 
     ListString = kt.string_to_list("List[String]")
-    assert isinstance(ListString, kt.T)
+    assert isinstance(ListString, kt.Ty)
     assert ListString.parse("1,2,3,4") == "1,2,3,4".split(",")
     assert ListString.parse("hello world,2,3,4") == "hello world,2,3,4".split(",")
 
@@ -355,7 +293,7 @@ configuration language like [[https://github.com/toml-lang/toml][toml]], [[https
 *** Schema
 
 #+begin_src python :noweb yes :tangle (k-schema-file) :exports code :results none
-from typing import NamedTuple, Any, List, Callable
+from typing import NamedTuple, Any, List, Callable, Dict
 import konfigurazioa.types as kt
 import yaml
 
@@ -367,7 +305,7 @@ Guard = NamedTuple("Guard", [ ("message", str)
 
 SchemaAtom = NamedTuple( "SchemaAtom"
                        , [ ("name", str)
-                         , ("type", kt.T)
+                         , ("type", kt.Ty)
                          , ("doc", str)
                          # The type will be checked at parsing time
                          , ("default", Any)
@@ -379,7 +317,7 @@ SchemaAtom = NamedTuple( "SchemaAtom"
 Schema = List[SchemaAtom]
 
 
-def guard_from_dict(d: dict) -> Guard:
+def guard_from_dict(d: Dict[str, str]) -> Guard:
     _l = eval(d["callable"])
     assert callable(_l), "Guard's callable must be a callable object"
     return Guard(d["message"], _l)
