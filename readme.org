@@ -373,8 +373,93 @@ def test_schema_from_file():
 
 ** Configuration
 
+What should be a good *API* for reading in a user configuration?
+
 #+begin_src python :noweb yes :tangle (k-config-file) :exports code :results none
+import yaml
+from typing import Dict, Any, NamedTuple, Optional
+from collections import defaultdict
+
+from konfigurazioa.schema import Schema, SchemaAtom
+import konfigurazioa.types as kt
+
+DataAtom = NamedTuple("DataAtom", [ ("value", Any)
+                                  , ("type", kt.Ty)
+                                  , ("name", str)
+                                  ])
+SectionData = Dict[str, DataAtom]
+ConfigData = Dict[Optional[str], SectionData]
+
+
+def validate_data(val: Any, s: SchemaAtom) -> DataAtom:
+    return DataAtom(value=s.type.parse(val),
+                    type=s.type,
+                    name=s.name)
+
+
+def dict_to_section_data(data: Dict[str, Any],
+                         schema: Schema,
+                         section: str) -> SectionData:
+    result = {}  # type: SectionData
+    for key, val in data.items():
+        _s = [s for s in schema if s.name == key]
+        if not _s:
+            raise ValueError("Key {} is not a valid setting name".format(key))
+        s = _s[0]
+        result[s.name] = validate_data(val, s)
+    return result
+
+
+def parse_data_from_schema(data: Dict[str, Any], schema: Schema) -> ConfigData:
+    result = defaultdict(dict)  # type: ConfigData
+    for key, val in data.items():
+        _s = [s for s in schema if s.name == key]
+        if not _s and not isinstance(val, dict):
+            raise ValueError("Key {} is not a valid setting name".format(key))
+        elif not _s and isinstance(val, dict):
+            section = key
+            result[section].update(dict_to_section_data(val, schema, section))
+        else:
+            s = _s[0]
+            result[None][key] = validate_data(val, s)
+    return result
+
+
+class Configuration:
+
+    def __init__(self, filepath: str, schema: Schema) -> None:
+        self.__filepath = filepath  # type: str
+        self.__data = {}  # type: ConfigData
+        self.__schema = schema  # type: Schema
+        self.__read()
+
+    def __read(self) -> None:
+        with open(self.__filepath) as f:
+            data = yaml.load(f, Loader=yaml.FullLoader)
+        self.__data = parse_data_from_schema(data, self.__schema)
+
+    def __general_get(self, key: str, section: Optional[str]=None) -> Any:
+        if section is None:
+            pass
+        else:
+            pass
+
+#+end_src
+
+#+begin_src yaml :noweb yes :tangle tests/config.yaml :exports none :results none
+port: 90
+
+other-server:
+    port: 120
 #+end_src
 
 #+begin_src python :noweb yes :tangle (k-config-test-file) :exports none :results none
+import konfigurazioa.config as kc
+import konfigurazioa.schema as ks
+
+
+def test_read_config():
+    schema = ks.schema_from_file("tests/schema.yaml")
+    c = kc.Configuration("tests/config.yaml", schema)
+    assert c
 #+end_src
