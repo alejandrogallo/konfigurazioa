@@ -462,4 +462,79 @@ def test_read_config():
     schema = ks.schema_from_file("tests/schema.yaml")
     c = kc.Configuration("tests/config.yaml", schema)
     assert c
+    assert c.get("port") == 90
+    assert c.get("base") == "index.html"
+    assert c.get("nums") == [1,2,3]
+
+    assert c.get("port", section="other-server") == 120
+    assert c.get("base", section="other-server") == "about.html"
+    assert c.get("nums", section="other-server") == [2,3,1]
 #+end_src
+** Sphinx documentation
+#+begin_src python :noweb yes :tangle (k-sphinx-file) :exports code :results none
+import docutils
+from docutils.parsers.rst import Directive
+from typing import Any, List
+
+import konfigurazioa.schema as ks
+
+
+SETTING_TEMPLATE = """\
+.. _config-{name}:
+**{name}** (config-{name}_)
+    - type: {type}
+    - default: {default}
+
+"""
+
+
+class Setting(Directive):  # type: ignore
+
+    has_content = True
+    optional_arguments = 2
+    required_arguments = 1
+    #option_spec = dict(schema=str, description=str)
+    add_index = True
+
+    def run(self) -> Any:
+        name = self.arguments[0]
+        schema_path = self.options.get('schema')
+        schema = ks.schema_from_file(schema_path)
+        _s = [s for s in schema if s.name == name]
+        if not _s:
+            raise ValueError("{} not in schema".format(name))
+        s = _s[0]
+        default = s.default
+        source = self.state_machine.input_lines.source(
+            self.lineno - self.state_machine.input_offset - 1)
+
+        default_list = []
+
+        if '\n' in str(default):
+            default_list.append("        .. code::")
+            default_list.append("")
+            for lindef in default.split('\n'):
+                default_list.append(3*"    " + lindef)
+        else:
+            default_list.append(" ``{value}``"
+                                .format(value=default))
+
+        lines = SETTING_TEMPLATE.format(default="\n".join(default_list),
+                                        type=s.type.name,
+                                        name=name).split("\n")
+
+        newViewList = docutils.statemachine.ViewList(lines)
+        self.content = newViewList + self.content # type: List[str]
+
+        node = docutils.nodes.paragraph()
+        node.document = self.state.document
+        self.state.nested_parse(self.content, self.content_offset, node)
+        return node.children
+
+
+def setup(app: Any) -> None:
+    app.add_directive('konfigurazioa-setting', Setting)
+
+#+end_src
+
+
