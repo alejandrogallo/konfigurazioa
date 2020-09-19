@@ -356,10 +356,26 @@ base:
   default: index.html
   type: String
   doc: Static file to serve in the root.
+delay:
+  default: 0.5
+  type: Float
+  doc: Latency for connections
+  guards:
+    - message: It should be less than 1
+      callable: "lambda x: x < 1"
 proxy:
   default: None
   type: Optional[String]
   doc: Proxy to reroute your main application.
+nums:
+  default: 1,2,3 
+  type: List[Int]
+  doc: An example for a list of integers
+  guards:
+    - message: Nums' size should be smaller than 5
+      callable: "lambda x: len(x) < 5"
+    - message: Nums' sum should be smaller than 10
+      callable: "lambda x: sum(x) < 10"
 #+end_src
 
 #+begin_src python :noweb yes :tangle (k-schema-test-file) :exports none :results none
@@ -377,7 +393,7 @@ What should be a good *API* for reading in a user configuration?
 
 #+begin_src python :noweb yes :tangle (k-config-file) :exports code :results none
 import yaml
-from typing import Dict, Any, NamedTuple, Optional
+from typing import Dict, Any, NamedTuple, Optional, TypeVar
 from collections import defaultdict
 
 from konfigurazioa.schema import Schema, SchemaAtom
@@ -392,7 +408,13 @@ ConfigData = Dict[Optional[str], SectionData]
 
 
 def validate_data(val: Any, s: SchemaAtom) -> DataAtom:
-    return DataAtom(value=s.type.parse(val),
+    v = s.type.parse(val)
+    # Run guards
+    for guard in s.guards:
+        if not guard.callable(v):
+            raise ValueError("Incorrect value for '{s}' ({v}): {m}"
+                             .format(s=s.name, v=v, m=guard.message))
+    return DataAtom(value=v,
                     type=s.type,
                     name=s.name)
 
@@ -410,8 +432,17 @@ def dict_to_section_data(data: Dict[str, Any],
     return result
 
 
+def default_data(schema: Schema) -> SectionData:
+    return {
+        s.name: DataAtom(value=s.default,
+                         type=s.type,
+                         name=s.name)
+        for s in schema
+    }
+
+
 def parse_data_from_schema(data: Dict[str, Any], schema: Schema) -> ConfigData:
-    result = defaultdict(dict)  # type: ConfigData
+    result = defaultdict(lambda: default_data(schema))  # type: ConfigData
     for key, val in data.items():
         _s = [s for s in schema if s.name == key]
         if not _s and not isinstance(val, dict):
@@ -438,19 +469,23 @@ class Configuration:
             data = yaml.load(f, Loader=yaml.FullLoader)
         self.__data = parse_data_from_schema(data, self.__schema)
 
-    def __general_get(self, key: str, section: Optional[str]=None) -> Any:
-        if section is None:
-            pass
-        else:
-            pass
+    def update_from_file(self, path: str) -> None:
+        c = Configuration(path, self.__schema)
+        self.__data.update(c.__data)
+
+    def get(self, key: str, section: Optional[str]=None) -> Any:
+        return self.__data[section][key].value
 
 #+end_src
 
 #+begin_src yaml :noweb yes :tangle tests/config.yaml :exports none :results none
 port: 90
+delay: 0.23
 
 other-server:
     port: 120
+    base: about.html
+    nums: 2, 3, 1
 #+end_src
 
 #+begin_src python :noweb yes :tangle (k-config-test-file) :exports none :results none
