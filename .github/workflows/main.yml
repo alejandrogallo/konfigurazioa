@@ -29,7 +29,12 @@ jobs:
       run: nix-shell --run 'make tangle'
 
     - name: Pytest
-      run: nix-shell --run 'pytest tests/'
+      run: nix-shell --run 'pytest tests/ --cov konfigurazioa/'
 
     - name: mypy
       run: nix-shell --run 'mypy konfigurazioa//'
+
+    - name: Coveralls
+      uses: coverallsapp/github-action@master
+      with:
+        github-token: ${{ secrets.GITHUB_TOKEN }}
