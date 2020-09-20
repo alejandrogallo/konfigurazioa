@@ -77,11 +77,6 @@ The main objectives of this library should be:
 The main structure for the types is given by a class with a 
 ~match~ and a ~parse~ function.
 
-#+begin_src python :noweb yes :tangle (k-types-test-file) :exports none :results none
-import konfigurazioa.types as kt
-
-
-#+end_src
 
 #+begin_src python :noweb yes :tangle (k-types-file) :exports code :results none
 from typing import ( Any, List, TypeVar, Generic, Union, Optional
@@ -92,6 +87,7 @@ import re
 Ty = NamedTuple("Ty", [ ("name", str)
                       , ("match", Callable[[Any], bool])
                       , ("parse", Callable[[Any], Any])])
+
 
 def ty_matcher(t: Ty, v:Any) -> bool:
     try:
@@ -155,7 +151,7 @@ def make_list(t: Ty) -> Ty:
         else:
             _list = re.findall(r"[^,\[\]()]+", str(v))
             if not _list:
-                raise Exception("Invalid list: {}".format(v))
+                raise SyntaxError("Invalid list: '{}'".format(v))
         return [_t.parse(e) for e in _list]
     tt = Ty(name="List[{}]".format(t.name),
             match=lambda x: ty_matcher(tt, x),
@@ -226,13 +222,34 @@ def string_to_type(name: str, types: List[Callable[[str], Optional[Ty]]]=TYPES) 
 *** Tests
 
 #+begin_src python :noweb yes :tangle (k-types-test-file) :exports none :results none
+import pytest
+import konfigurazioa.types as kt
+
 
 def test_int() -> None:
     Int = kt.string_to_type("Int")
     assert isinstance(Int, kt.Ty)
     assert Int.parse("5") == 5
-    assert Int.parse(5) == 5
+    assert Int.match(5)
+    assert not Int.match("5.3")
     assert Int.parse(5.4) == 5
+
+    with pytest.raises(ValueError):
+        assert Int.parse("5.5")
+
+
+def test_bool() -> None:
+    Bool = kt.string_to_type("Bool")
+    assert Bool.parse(True)
+    assert Bool.parse("True")
+    assert Bool.parse("true")
+    assert not Bool.parse("false")
+    assert not Bool.parse("False")
+
+    with pytest.raises(ValueError):
+        assert Bool.parse(1)
+        assert Bool.parse(2.2)
+        assert Bool.parse("adsf")
 
 
 def test_float() -> None:
@@ -257,16 +274,21 @@ def test_opt() -> None:
     assert OptInt.parse(5.12) == 5
 
 
-def test_list_int() -> None:
+def test_list() -> None:
     ListInt = kt.string_to_list("List[Int]")
     assert ListInt
     assert isinstance(ListInt, kt.Ty)
     assert ListInt.parse("1,2,3,4") == [1,2,3,4]
+    assert ListInt.match([1,2,])
 
     ListString = kt.string_to_list("List[String]")
     assert isinstance(ListString, kt.Ty)
     assert ListString.parse("1,2,3,4") == "1,2,3,4".split(",")
     assert ListString.parse("hello world,2,3,4") == "hello world,2,3,4".split(",")
+
+    with pytest.raises(SyntaxError):
+        assert ListInt.parse("")
+
 
 def test_union_int_bool() -> None:
     EitherIntOrBool = kt.string_to_union("Union[Int, Bool]")
@@ -279,6 +301,12 @@ def test_union_int_bool() -> None:
                 , ("12", 12)
                 ]:
         assert EitherIntOrBool.parse(p) is v
+
+    # jalformed inputs
+    assert (kt.string_to_union("Union int,int]") is None)
+    with pytest.raises(TypeError):
+        assert kt.string_to_union("Union[int,int]")
+
 
 
 #+end_src

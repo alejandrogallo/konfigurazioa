@@ -3,6 +3,7 @@ pkgs.mkShell {
   buildInputs = with pkgs; [
     python37
     python37Packages.pytest
+    python37Packages.pytestcov
     python37Packages.mypy
     python37Packages.pyyaml
     python37Packages.flake8
