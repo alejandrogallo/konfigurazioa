@@ -34,8 +34,10 @@ jobs:
     - name: mypy
       run: nix-shell --run 'mypy konfigurazioa//'
 
+    - name: Coveralls run
+      run: coveralls
+
     - name: Coveralls
       uses: coverallsapp/github-action@master
-      run: coveralls
       with:
         github-token: ${{ secrets.GITHUB_TOKEN }}
