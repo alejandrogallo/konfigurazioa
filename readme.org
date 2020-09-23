@@ -83,6 +83,7 @@ from typing import ( Any, List, TypeVar, Generic, Union, Optional
                    , Callable, Tuple, NamedTuple
                    )
 import re
+import os
 
 Ty = NamedTuple("Ty", [ ("name", str)
                       , ("match", Callable[[Any], bool])
@@ -135,6 +136,14 @@ Int = make_basic_wrapper(int, "Int")
 Float = make_basic_wrapper(float, "Float")
 String = make_basic_wrapper(str, "String")
 Bool = make_bool()
+PythonExpression \
+    = Ty("PythonExpression",
+         match=lambda x: True,
+         parse=lambda x: eval(x))
+PythonExpressionWithEnvironment \
+    = Ty("PythonExpressionWithEnvironment",
+         match=lambda x: True,
+         parse=lambda x: eval(x, {"env": os.environ}))
 
 
 def make_optional(t: Ty) -> Ty:
@@ -208,6 +217,12 @@ TYPES = [ lambda x: Int if re.match(Int.name, x) else None
         , string_to_optional
         , string_to_list
         , string_to_union
+        , lambda x: PythonExpressionWithEnvironment
+                    if re.match(PythonExpressionWithEnvironment.name, x)
+                    else None
+        , lambda x: PythonExpression
+                    if re.match(PythonExpression.name, x)
+                    else None
         ]  # List[Callable[[str], Optional[Ty]]]
 
 
